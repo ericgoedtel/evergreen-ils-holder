@@ -80,6 +80,9 @@ For the bib the user wants:
 AskUserQuestion with the exact bib id, title, formats, and pickup library name, options
 "Yes, place the hold" / "No". Only on "Yes" run `evergreen-hold <bib_id>`.
 
-Report `hold_id`, `queue_position` of `total_holds`, and `potential_copies`. On
+Report `hold_id`, `queue_position` of `total_holds`, and `potential_copies`, then print
+both links from the output as clickable markdown links: `record_url` (the catalog page for
+the bib the hold targets) and `holds_url` (the user's holds list; requires them to be logged
+in to the catalog site). On
 `{"error": "HOLD_EXISTS"}` tell the user they already have a hold on this title. On any
 other error, show `desc` and stop; do not retry.
