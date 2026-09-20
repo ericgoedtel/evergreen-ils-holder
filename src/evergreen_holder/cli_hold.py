@@ -31,18 +31,19 @@ def main(argv: list[str] | None = None) -> int:
         token = holds.login(client, cfg["username"], cfg["password"])
         patron = holds.patron_id(client, token)
         pickup = cfg["branch_id"]
+        notify = holds.notify_prefs(client, token, patron)
         if a.dry_run:
             emit({"dry_run": True, "bib_id": a.bib_id, "pickup_lib": pickup, "patron_id": patron,
-                  "payload": holds.hold_payload(patron, pickup),
+                  "notify": notify, "payload": holds.hold_payload(patron, pickup, notify),
                   "would_call": "open-ils.circ.holds.test_and_create.batch"})
             return 0
-        hold_id = holds.place_title_hold(client, token, patron, pickup, a.bib_id)
+        hold_id = holds.place_title_hold(client, token, patron, pickup, a.bib_id, notify)
         stats = holds.queue_stats(client, token, hold_id)
         base = cfg["base_url"].rstrip("/")
         emit({"hold_id": hold_id, "bib_id": a.bib_id, "pickup_lib": pickup,
               "queue_position": stats.get("queue_position"), "total_holds": stats.get("total_holds"),
               "potential_copies": stats.get("potential_copies"), "estimated_wait": stats.get("estimated_wait"),
-              "status": stats.get("status"),
+              "status": stats.get("status"), "notify": notify,
               "record_url": f"{base}/eg/opac/record/{a.bib_id}",
               "holds_url": f"{base}/eg/opac/myopac/holds"})
         return 0

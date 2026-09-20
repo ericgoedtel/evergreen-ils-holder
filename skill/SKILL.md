@@ -80,6 +80,12 @@ For the bib the user wants:
 AskUserQuestion with the exact bib id, title, formats, and pickup library name, options
 "Yes, place the hold" / "No". Only on "Yes" run `evergreen-hold <bib_id>`.
 
+Notification is taken from the user's catalog account preference (`opac.hold_notify`), the
+same way the catalog's own hold form pre-fills it; the output's `notify` shows what was set
+(`email_notify`, `phone_notify`, `sms_notify`). Mention it in one clause, e.g. "email
+notification". If `notify` is `{"email_notify": 0}` with nothing else, warn the user that no
+notification is configured on their account.
+
 Report `hold_id`, `queue_position` of `total_holds`, and `potential_copies`, then print
 both links from the output as clickable markdown links: `record_url` (the catalog page for
 the bib the hold targets) and `holds_url` (the user's holds list; requires them to be logged

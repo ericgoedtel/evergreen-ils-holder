@@ -119,7 +119,11 @@ from evergreen_holder import cli_hold
 def canned_auth(fake_client):
     fake_client.canned[fake_client.key("open-ils.auth.login", ({"username": "eric", "password": "pw", "type": "opac"},))] = [
         {"ilsevent": 0, "textcode": "SUCCESS", "payload": {"authtoken": "tok", "authtime": 1}}]
-    fake_client.canned[fake_client.key("open-ils.auth.session.retrieve", ("tok",))] = [{"_class": "au", "id": 777}]
+    fake_client.canned[fake_client.key("open-ils.auth.session.retrieve", ("tok",))] = [
+        {"_class": "au", "id": 777, "email": "e@x.org", "day_phone": None}]
+    fake_client.canned[fake_client.key("open-ils.actor.patron.settings.retrieve", ("tok", 777, holds.SETTING_KEYS))] = [
+        {"opac.hold_notify": "email", "opac.default_phone": None, "opac.default_sms_notify": None,
+         "opac.default_sms_carrier": None}]
     fake_client.canned[fake_client.key("open-ils.auth.session.delete", ("tok",))] = [1]
 
 
@@ -129,14 +133,15 @@ def test_hold_dry_run_never_calls_create(full_config, fake_client, monkeypatch, 
     assert cli_hold.main(["12547531", "--dry-run"]) == 0
     d = out(capsys)
     assert d["dry_run"] is True
-    assert d["payload"] == {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}
+    assert d["payload"] == {"patronid": 777, "pickup_lib": 501, "hold_type": "T", "email_notify": 1}
+    assert d["notify"] == {"email_notify": 1}
     assert not any(m == "open-ils.circ.holds.test_and_create.batch" for _, m, _ in fake_client.calls)
 
 
 def test_hold_places_and_reports_queue(full_config, fake_client, monkeypatch, capsys):
     canned_auth(fake_client)
     fake_client.canned[fake_client.key("open-ils.circ.holds.test_and_create.batch",
-                                       ("tok", {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}, [12547531]))] = [
+                                       ("tok", {"patronid": 777, "pickup_lib": 501, "hold_type": "T", "email_notify": 1}, [12547531]))] = [
         {"target": 12547531, "result": 99001}]
     fake_client.canned[fake_client.key("open-ils.circ.hold.queue_stats.retrieve", ("tok", 99001))] = [
         {"total_holds": 7, "queue_position": 3, "potential_copies": 102, "status": 2, "estimated_wait": 0}]
@@ -145,6 +150,7 @@ def test_hold_places_and_reports_queue(full_config, fake_client, monkeypatch, ca
     d = out(capsys)
     assert d["hold_id"] == 99001 and d["queue_position"] == 3 and d["total_holds"] == 7
     assert d["pickup_lib"] == 501
+    assert d["notify"] == {"email_notify": 1}
     assert d["record_url"] == "https://example.org/eg/opac/record/12547531"
     assert d["holds_url"] == "https://example.org/eg/opac/myopac/holds"
     assert any(m == "open-ils.auth.session.delete" for _, m, _ in fake_client.calls)
@@ -153,7 +159,7 @@ def test_hold_places_and_reports_queue(full_config, fake_client, monkeypatch, ca
 def test_hold_event_exit_2(full_config, fake_client, monkeypatch, capsys):
     canned_auth(fake_client)
     fake_client.canned[fake_client.key("open-ils.circ.holds.test_and_create.batch",
-                                       ("tok", {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}, [12547531]))] = [
+                                       ("tok", {"patronid": 777, "pickup_lib": 501, "hold_type": "T", "email_notify": 1}, [12547531]))] = [
         {"target": 12547531, "result": {"ilsevent": 1707, "textcode": "HOLD_EXISTS", "desc": "dup"}}]
     monkeypatch.setattr(cli_hold, "build_client", lambda cfg: fake_client)
     assert cli_hold.main(["12547531"]) == 2

@@ -73,3 +73,56 @@ def test_queue_stats():
 def test_logout_swallows_errors():
     c = FakeClient({})  # no canned response → KeyError inside; must not propagate
     logout(c, "tok")
+
+
+# --- notification preferences ---
+from evergreen_holder.holds import notify_prefs
+
+SETTINGS = "open-ils.actor.patron.settings.retrieve"
+SETTING_KEYS = ["opac.hold_notify", "opac.default_phone", "opac.default_sms_notify", "opac.default_sms_carrier"]
+
+
+def settings_client(values: dict, au: dict | None = None):
+    au = au or {"_class": "au", "id": 777, "email": "e@x.org", "day_phone": "919-555-0100"}
+    return FakeClient({
+        k(SETTINGS, "tok", 777, SETTING_KEYS): [values],
+        k("open-ils.auth.session.retrieve", "tok"): [au],
+    })
+
+
+def test_notify_prefs_email_only():
+    c = settings_client({"opac.hold_notify": "email", "opac.default_phone": None,
+                         "opac.default_sms_notify": None, "opac.default_sms_carrier": None})
+    assert notify_prefs(c, "tok", 777) == {"email_notify": 1}
+
+
+def test_notify_prefs_email_phone_sms():
+    c = settings_client({"opac.hold_notify": "email:phone:sms", "opac.default_phone": "919-555-0199",
+                         "opac.default_sms_notify": "9195550188", "opac.default_sms_carrier": 42})
+    assert notify_prefs(c, "tok", 777) == {"email_notify": 1, "phone_notify": "919-555-0199",
+                                           "sms_notify": "9195550188", "sms_carrier": 42}
+
+
+def test_notify_prefs_phone_falls_back_to_day_phone():
+    c = settings_client({"opac.hold_notify": "phone", "opac.default_phone": None,
+                         "opac.default_sms_notify": None, "opac.default_sms_carrier": None})
+    assert notify_prefs(c, "tok", 777) == {"email_notify": 0, "phone_notify": "919-555-0100"}
+
+
+def test_notify_prefs_unset_defaults_to_email_when_patron_has_email():
+    c = settings_client({"opac.hold_notify": None, "opac.default_phone": None,
+                         "opac.default_sms_notify": None, "opac.default_sms_carrier": None})
+    assert notify_prefs(c, "tok", 777) == {"email_notify": 1}
+
+
+def test_notify_prefs_unset_and_no_email_means_no_notification():
+    c = settings_client({"opac.hold_notify": None, "opac.default_phone": None,
+                         "opac.default_sms_notify": None, "opac.default_sms_carrier": None},
+                        au={"_class": "au", "id": 777, "email": None, "day_phone": None})
+    assert notify_prefs(c, "tok", 777) == {"email_notify": 0}
+
+
+def test_hold_payload_merges_notify():
+    assert hold_payload(777, 501, {"email_notify": 1, "phone_notify": "919"}) == {
+        "patronid": 777, "pickup_lib": 501, "hold_type": "T", "email_notify": 1, "phone_notify": "919"}
+    assert hold_payload(777, 501) == {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}

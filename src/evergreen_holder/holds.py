@@ -4,6 +4,7 @@ from __future__ import annotations
 from .gateway import IlsEvent, is_event
 
 AUTH = "open-ils.auth"
+ACTOR = "open-ils.actor"
 CIRC = "open-ils.circ"
 HOLD_TYPE_TITLE = "T"
 
@@ -21,13 +22,40 @@ def patron_id(client, authtoken: str) -> int:
     return int(au["id"])
 
 
-def hold_payload(patron: int, pickup_lib: int) -> dict:
-    return {"patronid": patron, "pickup_lib": pickup_lib, "hold_type": HOLD_TYPE_TITLE}
+SETTING_KEYS = ["opac.hold_notify", "opac.default_phone", "opac.default_sms_notify", "opac.default_sms_carrier"]
 
 
-def place_title_hold(client, authtoken: str, patron: int, pickup_lib: int, bib_id: int) -> int:
+def notify_prefs(client, authtoken: str, patron: int) -> dict:
+    """Resolve hold notification fields the way the OPAC's place-hold form pre-fills them:
+    from the patron's opac.hold_notify setting ("email", "email:phone:sms", ...), falling
+    back to email when unset and the patron has an email address."""
+    settings = client.call_one(ACTOR, "open-ils.actor.patron.settings.retrieve", authtoken, patron, SETTING_KEYS) or {}
+    au = client.call_one(AUTH, "open-ils.auth.session.retrieve", authtoken) or {}
+    pref = settings.get("opac.hold_notify")
+    methods = set(pref.split(":")) if pref else ({"email"} if au.get("email") else set())
+    out: dict = {"email_notify": 1 if "email" in methods else 0}
+    if "phone" in methods:
+        phone = settings.get("opac.default_phone") or au.get("day_phone")
+        if phone:
+            out["phone_notify"] = phone
+    if "sms" in methods and settings.get("opac.default_sms_notify"):
+        out["sms_notify"] = settings["opac.default_sms_notify"]
+        if settings.get("opac.default_sms_carrier") is not None:
+            out["sms_carrier"] = settings["opac.default_sms_carrier"]
+    return out
+
+
+def hold_payload(patron: int, pickup_lib: int, notify: dict | None = None) -> dict:
+    payload = {"patronid": patron, "pickup_lib": pickup_lib, "hold_type": HOLD_TYPE_TITLE}
+    if notify:
+        payload.update(notify)
+    return payload
+
+
+def place_title_hold(client, authtoken: str, patron: int, pickup_lib: int, bib_id: int,
+                     notify: dict | None = None) -> int:
     responses = client.call(CIRC, "open-ils.circ.holds.test_and_create.batch",
-                            authtoken, hold_payload(patron, pickup_lib), [bib_id])
+                            authtoken, hold_payload(patron, pickup_lib, notify), [bib_id])
     for r in responses:
         if not isinstance(r, dict) or int(r.get("target", -1)) != bib_id:
             continue
