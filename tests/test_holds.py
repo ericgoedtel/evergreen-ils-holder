@@ -122,6 +122,22 @@ def test_notify_prefs_unset_and_no_email_means_no_notification():
     assert notify_prefs(c, "tok", 777) == {"email_notify": 0}
 
 
+from evergreen_holder.holds import notify_summary
+
+
+def test_notify_summary_email_only():
+    assert notify_summary({"email_notify": 1}) == ["email"]
+
+
+def test_notify_summary_none():
+    assert notify_summary({"email_notify": 0}) == []
+
+
+def test_notify_summary_all_methods():
+    assert notify_summary({"email_notify": 1, "phone_notify": "919-555-0199",
+                           "sms_notify": "9195550188"}) == ["email", "phone", "sms"]
+
+
 def test_hold_payload_merges_notify():
     assert hold_payload(777, 501, {"email_notify": 1, "phone_notify": "919"}) == {
         "patronid": 777, "pickup_lib": 501, "hold_type": "T", "email_notify": 1, "phone_notify": "919"}

@@ -33,8 +33,13 @@ def main(argv: list[str] | None = None) -> int:
         pickup = cfg["branch_id"]
         notify = holds.notify_prefs(client, token, patron)
         if a.dry_run:
+            payload = holds.hold_payload(patron, pickup, notify)
+            redacted = dict(payload)
+            for k in ("phone_notify", "sms_notify"):
+                if k in redacted:
+                    redacted[k] = "<redacted>"
             emit({"dry_run": True, "bib_id": a.bib_id, "pickup_lib": pickup, "patron_id": patron,
-                  "notify": notify, "payload": holds.hold_payload(patron, pickup, notify),
+                  "notify": holds.notify_summary(notify), "payload": redacted,
                   "would_call": "open-ils.circ.holds.test_and_create.batch"})
             return 0
         hold_id = holds.place_title_hold(client, token, patron, pickup, a.bib_id, notify)
@@ -44,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         emit({"hold_id": hold_id, "bib_id": a.bib_id, "pickup_lib": pickup,
               "queue_position": stats.get("queue_position"), "total_holds": stats.get("total_holds"),
               "potential_copies": stats.get("potential_copies"), "estimated_wait": stats.get("estimated_wait"),
-              "status": stats.get("status"), "notify": notify, "targeted": targeted,
+              "status": stats.get("status"), "notify": holds.notify_summary(notify), "targeted": targeted,
               "record_url": f"{base}/eg/opac/record/{a.bib_id}",
               "holds_url": f"{base}/eg/opac/myopac/holds"})
         return 0

@@ -46,6 +46,21 @@ def test_set_base_url_fetches_idl(xdg, monkeypatch, capsys):
     assert called["dest"] == config.idl_path()
 
 
+def test_set_base_url_reports_password_cleared(full_config, capsys):
+    assert config.read_raw()["password"] == "pw"
+    assert cli_config.main(["set", "base_url", "https://other.example.org"]) == 0
+    d = out(capsys)
+    assert d["password_cleared"] is True
+    assert "password" not in config.read_raw()
+
+
+def test_set_base_url_same_value_keeps_password(full_config, capsys):
+    assert cli_config.main(["set", "base_url", "https://example.org"]) == 0
+    d = out(capsys)
+    assert "password_cleared" not in d
+    assert config.read_raw()["password"] == "pw"
+
+
 def test_set_password_via_set_is_refused(xdg, capsys):
     assert cli_config.main(["set", "password", "x"]) == 1
     assert out(capsys)["error"] == "config"
@@ -134,8 +149,24 @@ def test_hold_dry_run_never_calls_create(full_config, fake_client, monkeypatch, 
     d = out(capsys)
     assert d["dry_run"] is True
     assert d["payload"] == {"patronid": 777, "pickup_lib": 501, "hold_type": "T", "email_notify": 1}
-    assert d["notify"] == {"email_notify": 1}
+    assert d["notify"] == ["email"]
     assert not any(m == "open-ils.circ.holds.test_and_create.batch" for _, m, _ in fake_client.calls)
+
+
+def test_hold_dry_run_redacts_phone_and_sms(full_config, fake_client, monkeypatch, capsys):
+    canned_auth(fake_client)
+    fake_client.canned[fake_client.key("open-ils.actor.patron.settings.retrieve", ("tok", 777, holds.SETTING_KEYS))] = [
+        {"opac.hold_notify": "email:phone:sms", "opac.default_phone": "919-555-0199",
+         "opac.default_sms_notify": "9195550188", "opac.default_sms_carrier": 42}]
+    monkeypatch.setattr(cli_hold, "build_client", lambda cfg: fake_client)
+    assert cli_hold.main(["12547531", "--dry-run"]) == 0
+    d = out(capsys)
+    assert d["notify"] == ["email", "phone", "sms"]
+    assert d["payload"]["phone_notify"] == "<redacted>"
+    assert d["payload"]["sms_notify"] == "<redacted>"
+    raw = json.dumps(d)
+    assert "919-555-0199" not in raw
+    assert "9195550188" not in raw
 
 
 def test_hold_places_and_reports_queue(full_config, fake_client, monkeypatch, capsys):
@@ -157,7 +188,7 @@ def test_hold_places_and_reports_queue(full_config, fake_client, monkeypatch, ca
     d = out(capsys)
     assert d["hold_id"] == 99001 and d["queue_position"] == 3 and d["total_holds"] == 7
     assert d["pickup_lib"] == 501
-    assert d["notify"] == {"email_notify": 1}
+    assert d["notify"] == ["email"]
     assert d["targeted"] == {"copy_id": 555, "library_id": 393, "library": "Braswell Memorial Main Library"}
     assert d["record_url"] == "https://example.org/eg/opac/record/12547531"
     assert d["holds_url"] == "https://example.org/eg/opac/myopac/holds"

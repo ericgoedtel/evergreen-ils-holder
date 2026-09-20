@@ -13,7 +13,7 @@ make install
 Then add to `~/.claude/settings.json` so the hold command always prompts, even in auto mode:
 
 ```json
-{ "permissions": { "ask": ["Bash(evergreen-hold:*)"] } }
+{ "permissions": { "ask": ["Bash(evergreen-hold:*)", "Bash(evergreen-config set:*)"] } }
 ```
 
 ## Configure

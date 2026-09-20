@@ -19,7 +19,8 @@ def cmd_doctor() -> int:
 
 def cmd_set(key: str, value: str) -> int:
     try:
-        config.set_value(key, value)
+        had_password = "password" in config.read_raw()
+        data = config.set_value(key, value)
         if key == "base_url":
             fetch_idl(value, config.idl_path())
     except config.ConfigError as e:
@@ -28,7 +29,10 @@ def cmd_set(key: str, value: str) -> int:
     except Exception as e:  # network failure fetching IDL
         emit({"error": "idl_fetch", "desc": str(e)})
         return 1
-    emit({"ok": True, "key": key})
+    result = {"ok": True, "key": key}
+    if had_password and "password" not in data:
+        result["password_cleared"] = True
+    emit(result)
     return 0
 
 

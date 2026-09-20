@@ -45,6 +45,18 @@ def notify_prefs(client, authtoken: str, patron: int) -> dict:
     return out
 
 
+def notify_summary(notify: dict) -> list[str]:
+    """Method names present in a notify dict, never the phone/SMS numbers themselves."""
+    out = []
+    if notify.get("email_notify"):
+        out.append("email")
+    if notify.get("phone_notify"):
+        out.append("phone")
+    if notify.get("sms_notify"):
+        out.append("sms")
+    return out
+
+
 def hold_payload(patron: int, pickup_lib: int, notify: dict | None = None) -> dict:
     payload = {"patronid": patron, "pickup_lib": pickup_lib, "hold_type": HOLD_TYPE_TITLE}
     if notify:

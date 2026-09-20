@@ -39,7 +39,7 @@ class GatewayClient:
                  transport: httpx.BaseTransport | None = None, timeout: float = 60.0):
         self.base_url = base_url.rstrip("/")
         self.field_map = field_map
-        self._http = httpx.Client(transport=transport, timeout=timeout, follow_redirects=True)
+        self._http = httpx.Client(transport=transport, timeout=timeout, follow_redirects=False)
 
     def call(self, service: str, method: str, *params: Any) -> list:
         data = [("service", service), ("method", method)]
@@ -56,7 +56,8 @@ class GatewayClient:
                 content=encoded,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            resp.raise_for_status()
+            if not (200 <= resp.status_code < 300):
+                raise GatewayError(f"{method}: HTTP {resp.status_code}")
             body = resp.json()
         except (httpx.HTTPError, ValueError) as e:
             raise GatewayError(f"{method}: {e}") from e

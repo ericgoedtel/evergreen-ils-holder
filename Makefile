@@ -7,7 +7,7 @@ install:
 	mkdir -p $(HOME)/.claude/skills
 	ln -sfn $(CURDIR)/skill $(SKILL_DIR)
 	@echo "Installed evergreen-config, evergreen-search, evergreen-hold and linked $(SKILL_DIR)"
-	@echo "Now add to ~/.claude/settings.json:  \"permissions\": {\"ask\": [\"Bash(evergreen-hold:*)\"]}"
+	@echo "Now add to ~/.claude/settings.json:  \"permissions\": {\"ask\": [\"Bash(evergreen-hold:*)\", \"Bash(evergreen-config set:*)\"]}"
 
 uninstall:
 	uv tool uninstall evergreen-holder || true

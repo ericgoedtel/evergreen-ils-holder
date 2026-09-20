@@ -37,8 +37,11 @@ def read_raw() -> dict:
         return {}
     if not _mode_ok(p):
         raise ConfigError(f"{p} must be mode 0600 (run: chmod 600 {p})")
-    with p.open("rb") as f:
-        return tomllib.load(f)
+    try:
+        with p.open("rb") as f:
+            return tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"{p} is not valid TOML: {e}") from e
 
 
 def _toml_value(v) -> str:
@@ -55,10 +58,18 @@ def write_raw(data: dict) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(p.parent, 0o700)
     body = "".join(f"{k} = {_toml_value(v)}\n" for k, v in data.items())
-    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    tmp = p.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(body)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, p)
     os.chmod(p, 0o600)
+
+
+def _has_control_chars(s: str) -> bool:
+    return any(ord(c) < 0x20 or ord(c) == 0x7f for c in s)
 
 
 def set_value(key: str, value: str) -> dict:
@@ -66,6 +77,8 @@ def set_value(key: str, value: str) -> dict:
         raise ConfigError("password can only be set with `evergreen-config set-password`")
     if key not in SETTABLE_KEYS:
         raise ConfigError(f"unknown key {key!r}; valid keys: {', '.join(SETTABLE_KEYS)}")
+    if _has_control_chars(value):
+        raise ConfigError(f"{key} must not contain control characters")
     coerced: int | str = value
     if key in INT_KEYS:
         try:
@@ -74,13 +87,19 @@ def set_value(key: str, value: str) -> dict:
             raise ConfigError(f"{key} must be an integer org unit id, got {value!r}") from None
     if key == "preferred_format" and value not in FORMATS:
         raise ConfigError(f"preferred_format must be one of {', '.join(FORMATS)}")
+    if key == "base_url" and not value.startswith("https://"):
+        raise ConfigError("base_url must start with https://")
     data = read_raw()
+    if key == "base_url" and "base_url" in data and data["base_url"] != coerced and "password" in data:
+        del data["password"]
     data[key] = coerced
     write_raw(data)
     return data
 
 
 def set_password(password: str) -> None:
+    if _has_control_chars(password):
+        raise ConfigError("password must not contain control characters")
     data = read_raw()
     data["password"] = password
     write_raw(data)
@@ -91,21 +110,28 @@ def doctor() -> dict:
     exists = p.exists()
     mode_ok = exists and _mode_ok(p)
     data: dict = {}
+    parse_error = None
     if mode_ok:
-        with p.open("rb") as f:
-            data = tomllib.load(f)
+        try:
+            with p.open("rb") as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            parse_error = str(e)
     missing = [k for k in REQUIRED_KEYS if k not in data]
     password_set = bool(data.get("password"))
     idl_cached = idl_path().exists()
-    return {
+    result = {
         "config_path": str(p),
         "exists": exists,
         "mode_ok": bool(mode_ok),
         "idl_cached": idl_cached,
         "missing": missing,
         "password_set": password_set,
-        "ok": bool(exists and mode_ok and not missing and password_set and idl_cached),
+        "ok": bool(exists and mode_ok and not missing and password_set and idl_cached and parse_error is None),
     }
+    if parse_error is not None:
+        result["parse_error"] = parse_error
+    return result
 
 
 def load() -> dict:

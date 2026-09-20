@@ -102,3 +102,68 @@ def test_load_raises_listing_missing_keys(xdg):
     with pytest.raises(config.ConfigError) as ei:
         config.load()
     assert "base_url" in str(ei.value)
+
+
+def test_set_value_rejects_non_https_base_url(xdg):
+    with pytest.raises(config.ConfigError):
+        config.set_value("base_url", "http://example.org")
+    with pytest.raises(config.ConfigError):
+        config.set_value("base_url", "example.org")
+    config.set_value("base_url", "https://example.org")
+    assert config.read_raw()["base_url"] == "https://example.org"
+
+
+def test_set_value_clears_password_when_base_url_changes(xdg):
+    config.set_value("base_url", "https://example.org")
+    config.set_password("pw")
+    config.set_value("base_url", "https://other.example.org")
+    assert "password" not in config.read_raw()
+
+
+def test_set_value_keeps_password_when_base_url_unchanged(xdg):
+    config.set_value("base_url", "https://example.org")
+    config.set_password("pw")
+    config.set_value("base_url", "https://example.org")
+    assert config.read_raw()["password"] == "pw"
+
+
+def test_set_value_keeps_password_when_other_key_set(xdg):
+    config.set_value("base_url", "https://example.org")
+    config.set_password("pw")
+    config.set_value("username", "eric")
+    assert config.read_raw()["password"] == "pw"
+
+
+def test_set_value_rejects_control_characters(xdg):
+    with pytest.raises(config.ConfigError):
+        config.set_value("username", "eric\x00")
+    with pytest.raises(config.ConfigError):
+        config.set_value("base_url", "https://example.org\n")
+
+
+def test_set_password_rejects_control_characters(xdg):
+    with pytest.raises(config.ConfigError):
+        config.set_password("s3cret\x07")
+
+
+def test_read_raw_reports_invalid_toml_as_config_error(xdg):
+    config.set_value("username", "eric")
+    config.config_path().write_bytes(b"not = valid = toml")
+    os.chmod(config.config_path(), 0o600)
+    with pytest.raises(config.ConfigError) as ei:
+        config.read_raw()
+    assert "not valid TOML" in str(ei.value)
+
+
+def test_doctor_reports_parse_error_without_raising(xdg):
+    config.set_value("username", "eric")
+    config.config_path().write_bytes(b"not = valid = toml")
+    os.chmod(config.config_path(), 0o600)
+    d = config.doctor()
+    assert d["ok"] is False
+    assert "parse_error" in d
+
+
+def test_write_raw_does_not_leave_tmp_file(xdg):
+    config.set_value("username", "eric")
+    assert not config.config_path().with_suffix(".tmp").exists()

@@ -112,6 +112,14 @@ def test_http_error_raises_gateway_error():
         make_client(handler).call("s", "m")
 
 
+def test_redirect_is_not_followed_and_raises_gateway_error():
+    def handler(request: httpx.Request):
+        return httpx.Response(307, headers={"Location": "https://evil.example/osrf-gateway-v1"})
+
+    with pytest.raises(GatewayError):
+        make_client(handler).call("s", "m")
+
+
 def test_call_one_returns_none_on_empty_payload():
     def handler(_):
         return httpx.Response(200, json={"payload": [], "status": 200})
