@@ -111,3 +111,64 @@ def test_set_password_bad_login_does_not_write(full_config, fake_client, monkeyp
     assert cli_config.cmd_set_password(prompt=lambda _: next(answers)) == 2
     assert out(capsys)["error"] == "LOGIN_FAILED"
     assert config.read_raw()["password"] == "pw"
+
+
+from evergreen_holder import cli_hold
+
+
+def canned_auth(fake_client):
+    fake_client.canned[fake_client.key("open-ils.auth.login", ({"username": "eric", "password": "pw", "type": "opac"},))] = [
+        {"ilsevent": 0, "textcode": "SUCCESS", "payload": {"authtoken": "tok", "authtime": 1}}]
+    fake_client.canned[fake_client.key("open-ils.auth.session.retrieve", ("tok",))] = [{"_class": "au", "id": 777}]
+    fake_client.canned[fake_client.key("open-ils.auth.session.delete", ("tok",))] = [1]
+
+
+def test_hold_dry_run_never_calls_create(full_config, fake_client, monkeypatch, capsys):
+    canned_auth(fake_client)
+    monkeypatch.setattr(cli_hold, "build_client", lambda cfg: fake_client)
+    assert cli_hold.main(["12547531", "--dry-run"]) == 0
+    d = out(capsys)
+    assert d["dry_run"] is True
+    assert d["payload"] == {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}
+    assert not any(m == "open-ils.circ.holds.test_and_create.batch" for _, m, _ in fake_client.calls)
+
+
+def test_hold_places_and_reports_queue(full_config, fake_client, monkeypatch, capsys):
+    canned_auth(fake_client)
+    fake_client.canned[fake_client.key("open-ils.circ.holds.test_and_create.batch",
+                                       ("tok", {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}, [12547531]))] = [
+        {"target": 12547531, "result": 99001}]
+    fake_client.canned[fake_client.key("open-ils.circ.hold.queue_stats.retrieve", ("tok", 99001))] = [
+        {"total_holds": 7, "queue_position": 3, "potential_copies": 102, "status": 2, "estimated_wait": 0}]
+    monkeypatch.setattr(cli_hold, "build_client", lambda cfg: fake_client)
+    assert cli_hold.main(["12547531"]) == 0
+    d = out(capsys)
+    assert d["hold_id"] == 99001 and d["queue_position"] == 3 and d["total_holds"] == 7
+    assert d["pickup_lib"] == 501
+    assert any(m == "open-ils.auth.session.delete" for _, m, _ in fake_client.calls)
+
+
+def test_hold_event_exit_2(full_config, fake_client, monkeypatch, capsys):
+    canned_auth(fake_client)
+    fake_client.canned[fake_client.key("open-ils.circ.holds.test_and_create.batch",
+                                       ("tok", {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}, [12547531]))] = [
+        {"target": 12547531, "result": {"ilsevent": 1707, "textcode": "HOLD_EXISTS", "desc": "dup"}}]
+    monkeypatch.setattr(cli_hold, "build_client", lambda cfg: fake_client)
+    assert cli_hold.main(["12547531"]) == 2
+    assert out(capsys)["error"] == "HOLD_EXISTS"
+
+
+def test_hold_requires_password(xdg, monkeypatch, capsys):
+    monkeypatch.setattr(cli_config, "fetch_idl", lambda base_url, dest: dest.parent.mkdir(parents=True, exist_ok=True) or dest.write_text("<IDL/>"))
+    for k_, v in [("base_url", "https://example.org"), ("branch_id", "501"), ("system_id", "500"),
+                  ("consortium_id", "1"), ("username", "eric"), ("preferred_format", "hardcover")]:
+        cli_config.main(["set", k_, v])
+    capsys.readouterr()  # discard the six `set` JSON docs; only the hold command's output matters here
+    assert cli_hold.main(["12547531"]) == 1
+    assert "set-password" in out(capsys)["desc"]
+
+
+def test_hold_has_no_password_argument():
+    import argparse
+    with pytest.raises(SystemExit):
+        cli_hold.main(["12547531", "--password", "x"])
