@@ -25,8 +25,38 @@ def test_call_posts_service_method_and_json_params():
     assert seen["url"] == "https://example.org/osrf-gateway-v1"
     assert "service=open-ils.actor" in seen["body"]
     assert "method=some.method" in seen["body"]
-    assert "param=%7B%22a%22%3A+1%7D" in seen["body"] or "param=%7B%22a%22%3A1%7D" in seen["body"]
     assert "param=501" in seen["body"]
+
+
+def test_spaces_are_percent_encoded_never_plus():
+    # The OpenSRF gateway decodes %20 but not '+', so a '+' inside a JSON param
+    # corrupts the JSON and the server sees an empty argument hash.
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = request.content.decode()
+        return httpx.Response(200, json={"payload": [1], "status": 200})
+
+    make_client(handler).call("s", "m", {"a": 1}, "the overstory powers")
+    assert "+" not in seen["body"]
+    assert "param=%7B%22a%22%3A%201%7D" in seen["body"]
+    assert "param=%22the%20overstory%20powers%22" in seen["body"]
+
+
+def test_shifted_number_row_characters_round_trip():
+    import urllib.parse
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = request.content.decode()
+        return httpx.Response(200, json={"payload": [1], "status": 200})
+
+    pw = 'p!@#$%^&*()_+w"\\x'
+    make_client(handler).call("open-ils.auth", "open-ils.auth.login", {"username": "u", "password": pw, "type": "opac"})
+    # decode exactly the way the gateway does (percent-decoding only, no '+' handling)
+    params = [urllib.parse.unquote(v) for k, v in
+              (kv.split("=", 1) for kv in seen["body"].split("&")) if k == "param"]
+    assert json.loads(params[0])["password"] == pw
 
 
 def test_decodes_fieldmapper_objects_recursively():

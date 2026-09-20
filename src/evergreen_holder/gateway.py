@@ -46,8 +46,10 @@ class GatewayClient:
         data += [("param", json.dumps(p)) for p in params]
         # httpx >= 0.28 dropped support for a list of tuples in `data=`
         # (it now must be a Mapping); encode the form body ourselves so
-        # repeated `param` keys still work.
-        encoded = urllib.parse.urlencode(data)
+        # repeated `param` keys still work. quote (not quote_plus): the
+        # gateway decodes %20 but not '+', and a '+' inside a JSON param
+        # corrupts it so the server sees an empty argument hash.
+        encoded = urllib.parse.urlencode(data, quote_via=urllib.parse.quote)
         try:
             resp = self._http.post(
                 self.base_url + GATEWAY_PATH,
