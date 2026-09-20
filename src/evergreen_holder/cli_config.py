@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import sys
 
-from . import config
-from .cli_common import emit
+from . import config, holds
+from .cli_common import build_client, emit
+from .gateway import GatewayError, IlsEvent
 from .idl import fetch_idl
 
 
@@ -30,9 +32,36 @@ def cmd_set(key: str, value: str) -> int:
     return 0
 
 
-def cmd_set_password() -> int:
-    emit({"error": "not_implemented", "desc": "set-password arrives in a later task"})
-    return 1
+def cmd_set_password(prompt=getpass.getpass) -> int:
+    if not sys.stdin.isatty():
+        emit({"error": "not_a_tty", "desc": "set-password must be run by a person in an interactive terminal"})
+        return 1
+    try:
+        cfg = config.load()
+    except config.ConfigError as e:
+        emit({"error": "config", "desc": str(e)})
+        return 1
+    first = prompt("Evergreen password: ")
+    second = prompt("Again: ")
+    if first != second or not first:
+        emit({"error": "mismatch", "desc": "passwords did not match (or were empty); nothing written"})
+        return 1
+    try:
+        client = build_client(cfg)
+        token = holds.login(client, cfg["username"], first)
+        holds.logout(client, token)
+    except config.ConfigError as e:
+        emit({"error": "config", "desc": str(e)})
+        return 1
+    except IlsEvent as e:
+        emit({"error": e.textcode, "desc": e.desc})
+        return 2
+    except GatewayError as e:
+        emit({"error": "gateway", "desc": str(e)})
+        return 2
+    config.set_password(first)
+    emit({"ok": True, "key": "password", "verified": True})
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

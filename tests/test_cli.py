@@ -71,3 +71,43 @@ def test_search_query_output_shape(full_config, trimmed_client, monkeypatch, cap
 def test_search_without_config_fails_cleanly(xdg, capsys):
     assert cli_search.main(["anything"]) == 1
     assert out(capsys)["error"] == "config"
+
+
+from evergreen_holder import holds
+
+
+def test_set_password_refuses_non_tty(full_config, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    assert cli_config.main(["set-password"]) == 1
+    assert out(capsys)["error"] == "not_a_tty"
+
+
+def test_set_password_verifies_then_writes(full_config, fake_client, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(cli_config, "build_client", lambda cfg: fake_client)
+    fake_client.canned[fake_client.key("open-ils.auth.login", ({"username": "eric", "password": "newpw", "type": "opac"},))] = [
+        {"ilsevent": 0, "textcode": "SUCCESS", "payload": {"authtoken": "t", "authtime": 1}}]
+    answers = iter(["newpw", "newpw"])
+    assert cli_config.cmd_set_password(prompt=lambda _: next(answers)) == 0
+    assert out(capsys)["ok"] is True
+    assert config.read_raw()["password"] == "newpw"
+
+
+def test_set_password_mismatch(full_config, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    answers = iter(["a", "b"])
+    assert cli_config.cmd_set_password(prompt=lambda _: next(answers)) == 1
+    assert out(capsys)["error"] == "mismatch"
+    assert config.read_raw()["password"] == "pw"  # unchanged
+
+
+def test_set_password_bad_login_does_not_write(full_config, fake_client, monkeypatch, capsys):
+    from evergreen_holder.gateway import IlsEvent
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(cli_config, "build_client", lambda cfg: fake_client)
+    fake_client.canned[fake_client.key("open-ils.auth.login", ({"username": "eric", "password": "wrong", "type": "opac"},))] = \
+        IlsEvent({"ilsevent": 1000, "textcode": "LOGIN_FAILED", "desc": "User login failed"})
+    answers = iter(["wrong", "wrong"])
+    assert cli_config.cmd_set_password(prompt=lambda _: next(answers)) == 2
+    assert out(capsys)["error"] == "LOGIN_FAILED"
+    assert config.read_raw()["password"] == "pw"
