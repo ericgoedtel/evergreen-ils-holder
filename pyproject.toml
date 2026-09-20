@@ -9,6 +9,7 @@ dependencies = ["httpx>=0.27"]
 evergreen-config = "evergreen_holder.cli_config:main"
 evergreen-search = "evergreen_holder.cli_search:main"
 evergreen-hold = "evergreen_holder.cli_hold:main"
+pika-search = "evergreen_holder.cli_pika_search:main"
 
 [build-system]
 requires = ["hatchling"]

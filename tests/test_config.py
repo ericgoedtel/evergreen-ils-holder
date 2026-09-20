@@ -167,3 +167,86 @@ def test_doctor_reports_parse_error_without_raising(xdg):
 def test_write_raw_does_not_leave_tmp_file(xdg):
     config.set_value("username", "eric")
     assert not config.config_path().with_suffix(".tmp").exists()
+
+
+# ---- pika [pika] table ----
+
+def test_set_pika_dotted_keys_creates_nested_table(xdg):
+    config.set_value("pika.base_url", "https://catalog.wake.gov")
+    config.set_value("pika.pickup_branch", "Wendell Community")
+    raw = config.read_raw()
+    assert raw["pika"] == {"base_url": "https://catalog.wake.gov", "pickup_branch": "Wendell Community"}
+
+
+def test_set_pika_base_url_requires_https(xdg):
+    with pytest.raises(config.ConfigError):
+        config.set_value("pika.base_url", "http://catalog.wake.gov")
+
+
+def test_set_pika_unknown_dotted_key_rejected(xdg):
+    with pytest.raises(config.ConfigError):
+        config.set_value("pika.nonsense", "x")
+
+
+def test_pika_keys_dont_collide_with_flat_evergreen_keys(xdg):
+    config.set_value("base_url", "https://johnston.nccardinal.org")
+    config.set_value("pika.base_url", "https://catalog.wake.gov")
+    raw = config.read_raw()
+    assert raw["base_url"] == "https://johnston.nccardinal.org"
+    assert raw["pika"]["base_url"] == "https://catalog.wake.gov"
+
+
+def test_write_raw_round_trips_nested_table_after_flat_keys(xdg):
+    config.write_raw({"username": "eric", "branch_id": 501, "pika": {"base_url": "https://catalog.wake.gov",
+                                                                       "pickup_branch": "Wendell Community"}})
+    text = config.config_path().read_text()
+    # flat keys serialize before the [pika] table header
+    assert text.index("username") < text.index("[pika]")
+    assert text.index("branch_id") < text.index("[pika]")
+    raw = config.read_raw()
+    assert raw == {"username": "eric", "branch_id": 501,
+                    "pika": {"base_url": "https://catalog.wake.gov", "pickup_branch": "Wendell Community"}}
+
+
+def test_doctor_pika_sub_object_does_not_affect_top_level_ok(xdg):
+    for k, v in [("base_url", "https://example.org"), ("branch_id", "501"), ("system_id", "500"),
+                 ("consortium_id", "1"), ("username", "eric"), ("preferred_format", "hardcover")]:
+        config.set_value(k, v)
+    config.set_password("pw")
+    config.idl_path().parent.mkdir(parents=True)
+    config.idl_path().write_text("<IDL/>")
+    d = config.doctor()
+    assert d["ok"] is True
+    assert d["pika"] == {"configured": False, "missing": ["base_url", "pickup_branch"]}
+
+    config.set_value("pika.base_url", "https://catalog.wake.gov")
+    config.set_value("pika.pickup_branch", "Wendell Community")
+    d = config.doctor()
+    assert d["ok"] is True
+    assert d["pika"] == {"configured": True, "missing": []}
+
+
+def test_doctor_pika_missing_when_no_config_at_all(xdg):
+    d = config.doctor()
+    assert d["pika"] == {"configured": False, "missing": ["base_url", "pickup_branch"]}
+
+
+def test_load_pika_raises_listing_missing_keys(xdg):
+    with pytest.raises(config.ConfigError) as ei:
+        config.load_pika()
+    assert "pika.base_url" in str(ei.value)
+    assert "pika.pickup_branch" in str(ei.value)
+
+
+def test_load_pika_returns_table_when_complete(xdg):
+    config.set_value("pika.base_url", "https://catalog.wake.gov")
+    config.set_value("pika.pickup_branch", "Wendell Community")
+    assert config.load_pika() == {"base_url": "https://catalog.wake.gov", "pickup_branch": "Wendell Community"}
+
+
+def test_load_pika_partial_raises_only_missing_key(xdg):
+    config.set_value("pika.base_url", "https://catalog.wake.gov")
+    with pytest.raises(config.ConfigError) as ei:
+        config.load_pika()
+    assert "pika.pickup_branch" in str(ei.value)
+    assert "pika.base_url" not in str(ei.value)

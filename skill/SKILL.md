@@ -101,3 +101,25 @@ as clickable markdown links: `record_url` (the catalog page for the bib the hold
 and `holds_url` (the user's holds list; requires them to be logged in to the catalog site). On
 `{"error": "HOLD_EXISTS"}` tell the user they already have a hold on this title. On any
 other error, show `desc` and stop; do not retry.
+
+## Pika systems (read-only, no holds yet)
+
+If the user names a Pika library (currently Wake County Public Libraries) or the
+request is otherwise clearly for one, use `pika-search` instead of the Evergreen flow
+above. Pika support is search-only — **there is no way to place a hold on a Pika system
+from here**.
+
+1. Run `evergreen-config doctor`. If its `pika` sub-object has `configured: false`,
+   collect `pika.base_url` (the catalog's origin, e.g. `https://catalog.wake.gov`) and
+   `pika.pickup_branch` (the user's home branch, exactly as it appears before " - " in
+   the library's holdings display, e.g. `Wendell Community`) with AskUserQuestion, and
+   set them with `evergreen-config set pika.base_url <url>` and
+   `evergreen-config set pika.pickup_branch <name>`. No password is needed or asked for.
+2. Run `pika-search "<title words>"`. From `results`, present each grouped work (title,
+   author) with its `records`: record id, `format` (flag `large_print: true` ones
+   clearly), `copies.branch` and `copies.system` as "<available>/<total>", `on_shelf_at`
+   branch names when non-empty, and `wait_list` as "N people waiting on M copies" when
+   not null.
+3. Tell the user that placing a hold on a Pika system isn't available yet, and that they
+   should place it themselves on the catalog site using the result's `url` (grouped
+   work page) or a record's `record_url`.

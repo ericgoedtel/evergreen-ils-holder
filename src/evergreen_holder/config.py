@@ -10,7 +10,9 @@ APP = "evergreen-holder"
 REQUIRED_KEYS = ("base_url", "branch_id", "system_id", "consortium_id", "username", "preferred_format")
 INT_KEYS = ("branch_id", "system_id", "consortium_id")
 FORMATS = ("hardcover", "paperback")
-SETTABLE_KEYS = REQUIRED_KEYS  # password is deliberately excluded
+PIKA_KEYS = ("base_url", "pickup_branch")
+PIKA_SETTABLE_KEYS = tuple(f"pika.{k}" for k in PIKA_KEYS)
+SETTABLE_KEYS = REQUIRED_KEYS + PIKA_SETTABLE_KEYS  # password is deliberately excluded
 
 
 class ConfigError(Exception):
@@ -57,7 +59,12 @@ def write_raw(data: dict) -> None:
     p = config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(p.parent, 0o700)
-    body = "".join(f"{k} = {_toml_value(v)}\n" for k, v in data.items())
+    flat = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    tables = {k: v for k, v in data.items() if isinstance(v, dict)}
+    body = "".join(f"{k} = {_toml_value(v)}\n" for k, v in flat.items())
+    for name, table in tables.items():
+        body += f"\n[{name}]\n"
+        body += "".join(f"{k} = {_toml_value(v)}\n" for k, v in table.items())
     tmp = p.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -79,6 +86,16 @@ def set_value(key: str, value: str) -> dict:
         raise ConfigError(f"unknown key {key!r}; valid keys: {', '.join(SETTABLE_KEYS)}")
     if _has_control_chars(value):
         raise ConfigError(f"{key} must not contain control characters")
+    if key.startswith("pika."):
+        subkey = key.split(".", 1)[1]
+        if subkey == "base_url" and not value.startswith("https://"):
+            raise ConfigError("pika.base_url must start with https://")
+        data = read_raw()
+        pika = dict(data.get("pika") or {})
+        pika[subkey] = value
+        data["pika"] = pika
+        write_raw(data)
+        return data
     coerced: int | str = value
     if key in INT_KEYS:
         try:
@@ -120,6 +137,8 @@ def doctor() -> dict:
     missing = [k for k in REQUIRED_KEYS if k not in data]
     password_set = bool(data.get("password"))
     idl_cached = idl_path().exists()
+    pika_data = data.get("pika") or {}
+    pika_missing = [k for k in PIKA_KEYS if k not in pika_data]
     result = {
         "config_path": str(p),
         "exists": exists,
@@ -128,6 +147,7 @@ def doctor() -> dict:
         "missing": missing,
         "password_set": password_set,
         "ok": bool(exists and mode_ok and not missing and password_set and idl_cached and parse_error is None),
+        "pika": {"configured": not pika_missing, "missing": pika_missing},
     }
     if parse_error is not None:
         result["parse_error"] = parse_error
@@ -140,3 +160,13 @@ def load() -> dict:
     if missing:
         raise ConfigError("config is missing: " + ", ".join(missing) + " (run `evergreen-config doctor`)")
     return data
+
+
+def load_pika() -> dict:
+    data = read_raw()
+    pika = data.get("pika") or {}
+    missing = [k for k in PIKA_KEYS if k not in pika]
+    if missing:
+        raise ConfigError("pika config is missing: " + ", ".join(f"pika.{k}" for k in missing) +
+                           " (run `evergreen-config set pika.<key> <value>`)")
+    return pika

@@ -244,3 +244,106 @@ def test_hold_has_no_password_argument():
     import argparse
     with pytest.raises(SystemExit):
         cli_hold.main(["12547531", "--password", "x"])
+
+
+from evergreen_holder import cli_pika_search
+from evergreen_holder.pika import build_client
+
+PIKA_FIX = Path(__file__).parent / "fixtures" / "pika"
+
+
+def pika_fixture(name: str) -> str:
+    return (PIKA_FIX / name).read_text(encoding="utf-8")
+
+
+def pika_handler(request):
+    import httpx
+    path = request.url.path
+    params = dict(request.url.params)
+    if path == "/Search/Results":
+        q = params.get("lookfor")
+        if q == "Cryptonomicon":
+            return httpx.Response(200, text=pika_fixture("search_cryptonomicon.xml"))
+        if q == "Dune":
+            return httpx.Response(200, text=pika_fixture("search_dune.xml"))
+        return httpx.Response(200, text='<rss version="2.0"><channel><description>d</description></channel></rss>')
+    if path == "/GroupedWork/dfe46b1a-9917-0768-bc0e-e6dfad241b5f/Home":
+        return httpx.Response(200, text=pika_fixture("work_cryptonomicon.html"))
+    if path == "/GroupedWork/ddb713e8-646d-8b2b-8ee6-02d926507b73/Home":
+        return httpx.Response(200, text=pika_fixture("work_dune.html"))
+    if path.startswith("/GroupedWork/"):
+        # other Dune-search hits: no fixture recorded, serve a page with no ils records
+        return httpx.Response(200, text="<html><body>no debugging table here</body></html>")
+    if path == "/API/ItemAPI":
+        rec_id = params.get("id")
+        if rec_id == "ils:428175":
+            return httpx.Response(200, text=pika_fixture("availability_428175.json"))
+        if rec_id == "ils:495749":
+            return httpx.Response(200, text=pika_fixture("availability_495749.json"))
+    return httpx.Response(404, text="not found")
+
+
+@pytest.fixture
+def pika_config(xdg):
+    config.set_value("pika.base_url", "https://catalog.wake.gov")
+    config.set_value("pika.pickup_branch", "Middlecreek Community")
+
+
+def test_pika_search_happy_path(pika_config, monkeypatch, capsys):
+    import httpx
+    monkeypatch.setattr(cli_pika_search, "build_client",
+                         lambda base_url: build_client(base_url, transport=httpx.MockTransport(pika_handler)))
+    assert cli_pika_search.main(["Cryptonomicon"]) == 0
+    d = out(capsys)
+    assert d["system"] == "pika"
+    assert d["base_url"] == "https://catalog.wake.gov"
+    assert d["pickup_branch"] == "Middlecreek Community"
+    assert d["total_found"] == 1
+    assert len(d["results"]) == 1
+    r = d["results"][0]
+    assert r["grouped_work_id"] == "dfe46b1a-9917-0768-bc0e-e6dfad241b5f"
+    assert r["title"] == "Cryptonomicon"
+    assert r["author"] == "Stephenson, Neal"
+    assert r["url"] == "https://catalog.wake.gov/GroupedWork/dfe46b1a-9917-0768-bc0e-e6dfad241b5f/Home"
+    assert r["wait_list"] is None
+    assert len(r["records"]) == 1
+    rec = r["records"][0]
+    assert rec["record_id"] == "428175"
+    assert rec["format"] == "Book"
+    assert rec["large_print"] is False
+    assert rec["copies"]["branch"] == {"available": 1, "total": 1}
+    assert rec["copies"]["system"] == {"available": 1, "total": 2}
+    assert rec["on_shelf_at"] == ["Middlecreek Community"]
+    assert rec["record_url"] == "https://catalog.wake.gov/Record/428175"
+
+
+def test_pika_search_dune_has_wait_list(pika_config, monkeypatch, capsys):
+    import httpx
+    monkeypatch.setattr(cli_pika_search, "build_client",
+                         lambda base_url: build_client(base_url, transport=httpx.MockTransport(pika_handler)))
+    assert cli_pika_search.main(["Dune"]) == 0
+    d = out(capsys)
+    assert d["total_found"] == 51
+    assert len(d["results"]) == 10  # capped at MAX_WORKS
+    dune_result = next(r for r in d["results"] if r["grouped_work_id"] == "ddb713e8-646d-8b2b-8ee6-02d926507b73")
+    assert dune_result["wait_list"] == {"copies": 9, "holds": 57}
+
+
+def test_pika_search_config_error(xdg, capsys):
+    assert cli_pika_search.main(["Cryptonomicon"]) == 1
+    d = out(capsys)
+    assert d["error"] == "config"
+    assert "pika.base_url" in d["desc"]
+
+
+def test_pika_search_remote_error(pika_config, monkeypatch, capsys):
+    import httpx
+
+    def failing_handler(request):
+        return httpx.Response(500, text="boom")
+
+    monkeypatch.setattr(cli_pika_search, "build_client",
+                         lambda base_url: build_client(base_url, transport=httpx.MockTransport(failing_handler)))
+    assert cli_pika_search.main(["Cryptonomicon"]) == 2
+    d = out(capsys)
+    assert d["error"] == "pika"

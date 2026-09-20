@@ -56,10 +56,39 @@ Everything network-specific is in the config file. `base_url` is the catalog ori
 the three org ids come from `evergreen-search --orgs`. The fieldmapper IDL is fetched
 from `<base_url>/reports/fm_IDL.xml`, so object decoding follows the server's version.
 
+## Pika systems (read-only)
+
+[Pika](https://github.com/Marmot-Library-Network/Pika-Discovery-Layer) is Marmot's
+open-source VuFind fork; the first supported instance is Wake County Public Libraries
+(`https://catalog.wake.gov`). Support is read-only for now — **placing holds on Pika
+systems is not implemented**; use the catalog website.
+
+Config lives in the same `config.toml` (same file, mode 0600), in a `[pika]` table:
+
+```bash
+evergreen-config set pika.base_url https://catalog.wake.gov
+evergreen-config set pika.pickup_branch "Wendell Community"   # exact branch name as shown in holdings
+evergreen-config doctor   # reports a "pika": {"configured": bool, "missing": [...]} sub-object
+```
+
+Search:
+
+```bash
+pika-search "Cryptonomicon"
+```
+
+Prints one JSON document: `system`, `base_url`, `pickup_branch`, `total_found`, and up
+to 10 `results`, each a grouped work with `grouped_work_id`, `title`, `author`, `url`,
+`wait_list` (`{"copies", "holds"}` or `null`), and `records` — one per ILS record
+(e.g. regular print vs. large print) with `record_id`, `format`, `large_print`,
+`copies` (`branch`/`system` availability tiers), `on_shelf_at` (branch names with an
+available copy), and `record_url`.
+
 ## Development
 
 ```bash
 uv sync
 uv run pytest
-uv run python tests/record_fixtures.py   # re-record live fixtures (network)
+uv run python tests/record_fixtures.py        # re-record live Evergreen fixtures (network)
+uv run python tests/record_fixtures_pika.py    # re-record live Pika fixtures (network)
 ```
