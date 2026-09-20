@@ -126,3 +126,28 @@ def test_hold_payload_merges_notify():
     assert hold_payload(777, 501, {"email_notify": 1, "phone_notify": "919"}) == {
         "patronid": 777, "pickup_lib": 501, "hold_type": "T", "email_notify": 1, "phone_notify": "919"}
     assert hold_payload(777, 501) == {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}
+
+
+# --- targeted copy ---
+from evergreen_holder.holds import targeted_copy
+
+
+def test_targeted_copy_reports_owning_library():
+    c = FakeClient({
+        k("open-ils.circ.holds.retrieve", "tok", 777): [[{"_class": "ahr", "id": 99001, "current_copy": 555, "capture_time": None}]],
+        k("open-ils.search.asset.copy.retrieve", 555): [{"_class": "acp", "id": 555, "circ_lib": 393, "status": 0}],
+        k("open-ils.actor.org_tree.retrieve"): [{"_class": "aou", "id": 1, "name": "NC Cardinal", "shortname": "NC", "children": [
+            {"_class": "aou", "id": 393, "name": "Braswell Memorial Main Library", "shortname": "BRASWELL", "children": None}]}],
+    })
+    assert targeted_copy(c, "tok", 777, 99001) == {"copy_id": 555, "library_id": 393,
+                                                    "library": "Braswell Memorial Main Library"}
+
+
+def test_targeted_copy_none_when_untargeted():
+    c = FakeClient({k("open-ils.circ.holds.retrieve", "tok", 777): [[{"_class": "ahr", "id": 99001, "current_copy": None}]]})
+    assert targeted_copy(c, "tok", 777, 99001) is None
+
+
+def test_targeted_copy_none_when_hold_missing():
+    c = FakeClient({k("open-ils.circ.holds.retrieve", "tok", 777): [[]]})
+    assert targeted_copy(c, "tok", 777, 99001) is None

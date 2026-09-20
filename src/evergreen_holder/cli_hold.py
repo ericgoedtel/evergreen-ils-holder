@@ -39,11 +39,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         hold_id = holds.place_title_hold(client, token, patron, pickup, a.bib_id, notify)
         stats = holds.queue_stats(client, token, hold_id)
+        targeted = holds.targeted_copy(client, token, patron, hold_id)
         base = cfg["base_url"].rstrip("/")
         emit({"hold_id": hold_id, "bib_id": a.bib_id, "pickup_lib": pickup,
               "queue_position": stats.get("queue_position"), "total_holds": stats.get("total_holds"),
               "potential_copies": stats.get("potential_copies"), "estimated_wait": stats.get("estimated_wait"),
-              "status": stats.get("status"), "notify": notify,
+              "status": stats.get("status"), "notify": notify, "targeted": targeted,
               "record_url": f"{base}/eg/opac/record/{a.bib_id}",
               "holds_url": f"{base}/eg/opac/myopac/holds"})
         return 0

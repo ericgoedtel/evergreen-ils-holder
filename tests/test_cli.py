@@ -145,12 +145,20 @@ def test_hold_places_and_reports_queue(full_config, fake_client, monkeypatch, ca
         {"target": 12547531, "result": 99001}]
     fake_client.canned[fake_client.key("open-ils.circ.hold.queue_stats.retrieve", ("tok", 99001))] = [
         {"total_holds": 7, "queue_position": 3, "potential_copies": 102, "status": 2, "estimated_wait": 0}]
+    fake_client.canned[fake_client.key("open-ils.circ.holds.retrieve", ("tok", 777))] = [
+        [{"_class": "ahr", "id": 99001, "current_copy": 555}]]
+    fake_client.canned[fake_client.key("open-ils.search.asset.copy.retrieve", (555,))] = [
+        {"_class": "acp", "id": 555, "circ_lib": 393, "status": 0}]
+    tree = fake_client.canned[fake_client.key("open-ils.actor.org_tree.retrieve", ())][0]
+    tree["children"].append({"_class": "aou", "id": 393, "name": "Braswell Memorial Main Library",
+                             "shortname": "BRASWELL", "children": None})
     monkeypatch.setattr(cli_hold, "build_client", lambda cfg: fake_client)
     assert cli_hold.main(["12547531"]) == 0
     d = out(capsys)
     assert d["hold_id"] == 99001 and d["queue_position"] == 3 and d["total_holds"] == 7
     assert d["pickup_lib"] == 501
     assert d["notify"] == {"email_notify": 1}
+    assert d["targeted"] == {"copy_id": 555, "library_id": 393, "library": "Braswell Memorial Main Library"}
     assert d["record_url"] == "https://example.org/eg/opac/record/12547531"
     assert d["holds_url"] == "https://example.org/eg/opac/myopac/holds"
     assert any(m == "open-ils.auth.session.delete" for _, m, _ in fake_client.calls)

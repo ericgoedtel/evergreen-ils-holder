@@ -86,7 +86,11 @@ same way the catalog's own hold form pre-fills it; the output's `notify` shows w
 notification". If `notify` is `{"email_notify": 0}` with nothing else, warn the user that no
 notification is configured on their account.
 
-Report `hold_id`, `queue_position` of `total_holds`, and `potential_copies`, then print
+Report `hold_id`, `queue_position` of `total_holds`, and `potential_copies`. If `targeted`
+is non-null, say which library's copy was assigned ("Evergreen assigned a copy at
+<targeted.library>; it ships once their staff pull it"). The catalog site shows only
+"Waiting for copy" for this state, so this is information the user cannot see there. If
+`targeted` is null, say no copy has been assigned yet and the hold is queued. Then print
 both links from the output as clickable markdown links: `record_url` (the catalog page for
 the bib the hold targets) and `holds_url` (the user's holds list; requires them to be logged
 in to the catalog site). On

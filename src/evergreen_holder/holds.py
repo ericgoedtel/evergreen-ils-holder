@@ -78,6 +78,23 @@ def queue_stats(client, authtoken: str, hold_id: int) -> dict:
     return client.call_one(CIRC, "open-ils.circ.hold.queue_stats.retrieve", authtoken, hold_id) or {}
 
 
+def targeted_copy(client, authtoken: str, patron: int, hold_id: int) -> dict | None:
+    """Which copy Evergreen has assigned to the hold and which library owns it.
+    The patron OPAC hides this behind "Waiting for copy"; the API does not."""
+    from .catalog import org_names  # local import: catalog is read-only, holds is authenticated
+
+    payload = client.call(CIRC, "open-ils.circ.holds.retrieve", authtoken, patron)
+    hs = payload[0] if payload and isinstance(payload[0], list) else payload
+    hold = next((h for h in hs if isinstance(h, dict) and int(h.get("id", -1)) == hold_id), None)
+    if not hold or not hold.get("current_copy"):
+        return None
+    copy_id = int(hold["current_copy"])
+    cp = client.call_one("open-ils.search", "open-ils.search.asset.copy.retrieve", copy_id) or {}
+    lib = int(cp["circ_lib"]) if cp.get("circ_lib") is not None else None
+    return {"copy_id": copy_id, "library_id": lib,
+            "library": org_names(client, [lib]).get(lib, "") if lib is not None else ""}
+
+
 def logout(client, authtoken: str) -> None:
     try:
         client.call(AUTH, "open-ils.auth.session.delete", authtoken)
