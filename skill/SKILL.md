@@ -10,7 +10,7 @@ compose URLs or curl commands, and never edit the config file by hand.
 
 - `evergreen-config doctor` / `evergreen-config set <key> <value>`
 - `evergreen-search "<title> <author>"` / `evergreen-search --orgs <name>`
-- `evergreen-hold <bib_id> [--dry-run]`
+- `evergreen-hold <bib_id> [--dry-run] [--suspend]`
 
 All three print one JSON document. Non-zero exit means the JSON is `{"error", "desc"}`.
 
@@ -18,8 +18,8 @@ All three print one JSON document. Non-zero exit means the JSON is `{"error", "d
 
 1. **Never run `evergreen-hold` (without `--dry-run`) until the user has answered an
    AskUserQuestion that names the exact bib id, title, format labels, and pickup library
-   and chosen "Yes, place the hold".** One confirmation per hold. A "yes" earlier in the
-   conversation does not carry over.
+   and chosen either "Yes, place the hold" or "Yes, place it suspended".** One confirmation
+   per hold. A "yes" earlier in the conversation does not carry over.
 2. **Never ask the user for their library password, never run `evergreen-config
    set-password`, and never pass a password on any command line.** If the password is
    not set, tell the user to run `evergreen-config set-password` in their own terminal
@@ -78,7 +78,11 @@ For the bib the user wants:
 ## Step 4: confirm and place
 
 AskUserQuestion with the exact bib id, title, formats, and pickup library name, options
-"Yes, place the hold" / "No". Only on "Yes" run `evergreen-hold <bib_id>`.
+"Yes, place the hold" / "Yes, place it suspended" / "No". On "Yes, place the hold" run
+`evergreen-hold <bib_id>`. On "Yes, place it suspended" run `evergreen-hold <bib_id>
+--suspend` — this places the hold frozen so it will not capture a copy until it is
+resumed. There is no thaw-date support; it stays suspended until manually resumed from
+the catalog site's holds page (there is no CLI command here to resume/thaw a hold).
 
 Notification is taken from the user's catalog account preference (`opac.hold_notify`), the
 same way the catalog's own hold form pre-fills it; the output's `notify` is a list of the
@@ -86,13 +90,14 @@ method names that were set, e.g. `["email"]` or `["email", "sms"]` (never the ra
 number). Mention it in one clause, e.g. "email notification". If `notify` is `[]`, warn the
 user that no notification is configured on their account.
 
-Report `hold_id`, `queue_position` of `total_holds`, and `potential_copies`. If `targeted`
-is non-null, say which library's copy was assigned ("Evergreen assigned a copy at
-<targeted.library>; it ships once their staff pull it"). The catalog site shows only
-"Waiting for copy" for this state, so this is information the user cannot see there. If
-`targeted` is null, say no copy has been assigned yet and the hold is queued. Then print
-both links from the output as clickable markdown links: `record_url` (the catalog page for
-the bib the hold targets) and `holds_url` (the user's holds list; requires them to be logged
-in to the catalog site). On
+Report `hold_id`, `queue_position` of `total_holds`, and `potential_copies`. If `suspended`
+is true, say the hold was placed suspended and won't be filled until it's resumed from the
+catalog site. If `targeted` is non-null, say which library's copy was assigned ("Evergreen
+assigned a copy at <targeted.library>; it ships once their staff pull it"). The catalog
+site shows only "Waiting for copy" for this state, so this is information the user cannot
+see there. If `targeted` is null, say no copy has been assigned yet and the hold is queued
+(this is the normal case when `suspended` is true). Then print both links from the output
+as clickable markdown links: `record_url` (the catalog page for the bib the hold targets)
+and `holds_url` (the user's holds list; requires them to be logged in to the catalog site). On
 `{"error": "HOLD_EXISTS"}` tell the user they already have a hold on this title. On any
 other error, show `desc` and stop; do not retry.

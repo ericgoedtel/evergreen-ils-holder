@@ -144,6 +144,22 @@ def test_hold_payload_merges_notify():
     assert hold_payload(777, 501) == {"patronid": 777, "pickup_lib": 501, "hold_type": "T"}
 
 
+def test_hold_payload_suspend_sets_frozen():
+    assert hold_payload(777, 501, suspend=True) == {
+        "patronid": 777, "pickup_lib": 501, "hold_type": "T", "frozen": 1}
+
+
+def test_hold_payload_not_suspended_omits_frozen():
+    assert "frozen" not in hold_payload(777, 501, suspend=False)
+
+
+def test_place_title_hold_suspend_sends_frozen():
+    c = FakeClient({k("open-ils.circ.holds.test_and_create.batch", "tok",
+                      {"patronid": 777, "pickup_lib": 501, "hold_type": "T", "frozen": 1}, [12547531]):
+                    [{"target": 12547531, "result": 99001}]})
+    assert place_title_hold(c, "tok", 777, 501, 12547531, suspend=True) == 99001
+
+
 # --- targeted copy ---
 from evergreen_holder.holds import targeted_copy
 

@@ -195,6 +195,31 @@ def test_hold_places_and_reports_queue(full_config, fake_client, monkeypatch, ca
     assert any(m == "open-ils.auth.session.delete" for _, m, _ in fake_client.calls)
 
 
+def test_hold_suspend_sends_frozen_and_reports_suspended(full_config, fake_client, monkeypatch, capsys):
+    canned_auth(fake_client)
+    fake_client.canned[fake_client.key("open-ils.circ.holds.test_and_create.batch",
+                                       ("tok", {"patronid": 777, "pickup_lib": 501, "hold_type": "T", "email_notify": 1, "frozen": 1}, [12547531]))] = [
+        {"target": 12547531, "result": 99001}]
+    fake_client.canned[fake_client.key("open-ils.circ.hold.queue_stats.retrieve", ("tok", 99001))] = [
+        {"total_holds": 7, "queue_position": 3, "potential_copies": 102, "status": 2, "estimated_wait": 0}]
+    fake_client.canned[fake_client.key("open-ils.circ.holds.retrieve", ("tok", 777))] = [
+        [{"_class": "ahr", "id": 99001, "current_copy": None}]]
+    monkeypatch.setattr(cli_hold, "build_client", lambda cfg: fake_client)
+    assert cli_hold.main(["12547531", "--suspend"]) == 0
+    d = out(capsys)
+    assert d["hold_id"] == 99001
+    assert d["suspended"] is True
+
+
+def test_hold_dry_run_suspend_shows_frozen_in_payload(full_config, fake_client, monkeypatch, capsys):
+    canned_auth(fake_client)
+    monkeypatch.setattr(cli_hold, "build_client", lambda cfg: fake_client)
+    assert cli_hold.main(["12547531", "--dry-run", "--suspend"]) == 0
+    d = out(capsys)
+    assert d["suspended"] is True
+    assert d["payload"]["frozen"] == 1
+
+
 def test_hold_event_exit_2(full_config, fake_client, monkeypatch, capsys):
     canned_auth(fake_client)
     fake_client.canned[fake_client.key("open-ils.circ.holds.test_and_create.batch",

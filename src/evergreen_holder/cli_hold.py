@@ -1,4 +1,4 @@
-"""evergreen-hold <bib_id> [--dry-run]: place a title hold for pickup at the configured branch.
+"""evergreen-hold <bib_id> [--dry-run] [--suspend]: place a title hold for pickup at the configured branch.
 
 The password is read from the config file only. This tool is meant to be run only after a
 human has confirmed the specific bib in the active session."""
@@ -16,6 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="evergreen-hold")
     p.add_argument("bib_id", type=int)
     p.add_argument("--dry-run", action="store_true", help="log in and build the payload, but do not place the hold")
+    p.add_argument("--suspend", action="store_true", help="place the hold already suspended (frozen); no thaw date")
     a = p.parse_args(argv)
     try:
         cfg = config.load()
@@ -33,23 +34,24 @@ def main(argv: list[str] | None = None) -> int:
         pickup = cfg["branch_id"]
         notify = holds.notify_prefs(client, token, patron)
         if a.dry_run:
-            payload = holds.hold_payload(patron, pickup, notify)
+            payload = holds.hold_payload(patron, pickup, notify, a.suspend)
             redacted = dict(payload)
             for k in ("phone_notify", "sms_notify"):
                 if k in redacted:
                     redacted[k] = "<redacted>"
             emit({"dry_run": True, "bib_id": a.bib_id, "pickup_lib": pickup, "patron_id": patron,
-                  "notify": holds.notify_summary(notify), "payload": redacted,
+                  "notify": holds.notify_summary(notify), "suspended": a.suspend, "payload": redacted,
                   "would_call": "open-ils.circ.holds.test_and_create.batch"})
             return 0
-        hold_id = holds.place_title_hold(client, token, patron, pickup, a.bib_id, notify)
+        hold_id = holds.place_title_hold(client, token, patron, pickup, a.bib_id, notify, a.suspend)
         stats = holds.queue_stats(client, token, hold_id)
         targeted = holds.targeted_copy(client, token, patron, hold_id)
         base = cfg["base_url"].rstrip("/")
         emit({"hold_id": hold_id, "bib_id": a.bib_id, "pickup_lib": pickup,
               "queue_position": stats.get("queue_position"), "total_holds": stats.get("total_holds"),
               "potential_copies": stats.get("potential_copies"), "estimated_wait": stats.get("estimated_wait"),
-              "status": stats.get("status"), "notify": holds.notify_summary(notify), "targeted": targeted,
+              "status": stats.get("status"), "notify": holds.notify_summary(notify), "suspended": a.suspend,
+              "targeted": targeted,
               "record_url": f"{base}/eg/opac/record/{a.bib_id}",
               "holds_url": f"{base}/eg/opac/myopac/holds"})
         return 0

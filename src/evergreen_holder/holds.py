@@ -57,17 +57,19 @@ def notify_summary(notify: dict) -> list[str]:
     return out
 
 
-def hold_payload(patron: int, pickup_lib: int, notify: dict | None = None) -> dict:
+def hold_payload(patron: int, pickup_lib: int, notify: dict | None = None, suspend: bool = False) -> dict:
     payload = {"patronid": patron, "pickup_lib": pickup_lib, "hold_type": HOLD_TYPE_TITLE}
     if notify:
         payload.update(notify)
+    if suspend:
+        payload["frozen"] = 1
     return payload
 
 
 def place_title_hold(client, authtoken: str, patron: int, pickup_lib: int, bib_id: int,
-                     notify: dict | None = None) -> int:
+                     notify: dict | None = None, suspend: bool = False) -> int:
     responses = client.call(CIRC, "open-ils.circ.holds.test_and_create.batch",
-                            authtoken, hold_payload(patron, pickup_lib, notify), [bib_id])
+                            authtoken, hold_payload(patron, pickup_lib, notify, suspend), [bib_id])
     for r in responses:
         if not isinstance(r, dict) or int(r.get("target", -1)) != bib_id:
             continue
