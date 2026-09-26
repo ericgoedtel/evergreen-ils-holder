@@ -54,7 +54,13 @@ Run `evergreen-search "<title> <author>"`. From `results`:
   the catalog's relevance ranking is loose.
 - Rank the remaining hits by `preferred_format`: bibs whose `formats` contain only the
   preferred format first, mixed-format bibs second, other-only last, then by consortium
-  availability. `formats: []` means the record has no labeled ISBNs; treat it as unknown.
+  availability. `formats: []` is ambiguous on its own — check `isbns` to tell the two
+  cases apart: an empty `isbns` list means the record has no ISBN at all, while a
+  non-empty `isbns` list with blank `label`s means the record has a real ISBN but the
+  cataloger didn't specify a binding. In the second case, say the format is "not
+  specified in the catalog" rather than "unknown," and if it matters for the decision
+  (e.g. it's the only copy with consortium availability), a web search on the ISBN often
+  resolves it directly — this is a manual judgment call each time, not a tool feature.
 - Flag `large_print: true` hits as large print; they are usually not what the user wants.
 - Show the user a short list: bib id, title, year, formats, and the three tiers as
   "<available>/<total>" for branch, system, consortium, using the names from the output.
